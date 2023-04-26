@@ -5,7 +5,9 @@ Code for replicating the study "A computational framework for biomarker discover
 
 Open SRC directory.
 
-Open with jupyter notebook.
+Create a data directory inside the SRC directory.
+
+Open "Data_Retrieval.ipynb" with jupyter notebook.
 
 Run all.
 
@@ -45,7 +47,7 @@ Open SRC directory.
 
 Open data directory.
 
-extract compressed files to the data directory.
+In case step 1 was not performed, download the data from here: https://drive.google.com/drive/folders/18UzhT5_4NNl4sfyfVDjdCbFAMner7NyL?usp=share_link
 
 Return to the SRC directory. 
 
