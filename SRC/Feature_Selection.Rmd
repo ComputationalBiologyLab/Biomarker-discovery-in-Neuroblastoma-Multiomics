@@ -1,0 +1,396 @@
+---
+title: "A computational framework for biomarker discovery in Neuroblastoma through multi-omics data"
+subtitle: "Feature Selection"
+Author: "Rahma Hussein Hassan Refky"
+date: "Jun, 24, 2022"
+last modified: "Apr, 20, 2023"
+---
+#Code for "A computational framework for biomarker discovery in Neuroblastoma through multi-omics data"
+
+
+##loading libraries:
+```{r}
+library("SNFtool")
+library("png")
+library("gridExtra")
+library("dplyr")
+```
+
+##reading data:
+```{r}
+mRNA = read.csv("data/NBL_mRNA_TPM.csv",row.names = 'gene_id')
+
+miRNA = read.csv("data/NBL_miRNA_RPM.csv",row.names = 'miRNA_ID')
+
+methyl = read.csv("data/NBL_methylation_beta_values.csv",row.names ="Reporter.ID")
+
+```
+#preprocessing:
+##data cleaning and quality control:
+```{r}
+#omit NA values from methyl:
+methyl = na.omit(methyl)
+dim(methyl)
+
+# remove the 'TARGET-30-PASUYG-01' sample as it has poor quality methylation data (see python folder):
+mRNA$`TARGET.30.PASUYG.01` <- NULL
+miRNA$`TARGET.30.PASUYG.01` <- NULL
+methyl$`TARGET.30.PASUYG.01` <- NULL
+
+# remove features mapping to multiple sites from methylation data: (they are annotated with Na for chromosome, 65 instances {source: https://target-data.nci.nih.gov/Public/NBL/methylation_array/METADATA/TARGET_NBL_MethylationArray_20160812.idf.txt}, other Na's are for gene symbol (anyway we can't use these) or for beta values (we also can't use them of course))
+map <- read.csv(file="data/TARGET-30-PAIFXV-01")
+map <- na.omit(map)
+
+#remove features mapped to X/Y chromosomes from the methyl data set:
+
+map <- map[!(map$Chromosome %in% c('X','Y')), ]
+methyl <- methyl[rownames(methyl) %in% map$Reporter.ID,]
+
+#remove features mapped to X/Y chromosomes from the mRNA data set:
+
+mrna_map <- read.csv(file="data/TARGET-30-PALBFW-01_mRNA.csv")
+mrna_map <- mrna_map[!((grepl("X", mrna_map$locus)) | (grepl("Y", mrna_map$locus))),]
+mRNA <- mRNA[rownames(mRNA) %in% mrna_map$tracking_id,]
+
+#remove features with all zeroes
+methyl = methyl[apply(methyl, 1, function(x) !all(x==0)),]
+mRNA = mRNA[apply(mRNA, 1, function(x) !all(x==0)),]
+miRNA = miRNA[apply(miRNA, 1, function(x) !all(x==0)),]
+```
+check sample names across data types:
+```{r}
+# all these should return TRUE:
+all(colnames(mRNA) %in% colnames(methyl))
+all(colnames(mRNA) %in% colnames(miRNA))
+all(colnames(miRNA) %in% colnames(methyl))
+```
+##normalization:
+```{r}
+#min-max Normalization:
+
+minMax <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+methyl.sn <- apply(methyl, 1, minMax)
+mRNA.sn <- apply(mRNA, 1, minMax)
+miRNA.sn <- apply(miRNA, 1, minMax)
+ 
+#check normalization:
+Mean <- c(mean(mRNA.sn), mean(miRNA.sn), mean(methyl.sn))
+Sd <- c(sd(mRNA.sn), sd(miRNA.sn), sd(methyl.sn))
+Max <- c(max(mRNA.sn), max(miRNA.sn), max(methyl.sn))
+Min <- c(min(mRNA.sn), min(miRNA.sn), min(methyl.sn))
+check <- data.frame(Mean, Sd, Max, Min)
+rownames(check) <- c('mRNA','miRNA','methyl')
+
+
+png(file="check_normalization.png", width=600, height=100)
+p<-tableGrob(check)
+grid.arrange(p)
+
+#check data dimensions:
+dim(mRNA); dim(miRNA); dim(methyl);
+dim(mRNA.sn); dim(miRNA.sn); dim(methyl.sn);
+```
+#SNF:
+##make distance matrices:
+```{r}
+Dist1 <- dist2(as.matrix(mRNA.sn),as.matrix(mRNA.sn))
+Dist2 <- dist2(as.matrix(miRNA.sn),as.matrix(miRNA.sn))
+Dist3 <- dist2(as.matrix(methyl.sn),as.matrix(methyl.sn))
+```
+##hyper parameter tuning:
+###T (number of iterations):
+```{r}
+#set parameters:
+K = 20;alpha = 0.5;
+
+#get graphs:
+graph1 <- affinityMatrix(Dist1, K, alpha)
+graph2 <- affinityMatrix(Dist2, K, alpha)
+graph3 <- affinityMatrix(Dist3, K, alpha)
+
+#loop to try different numbers of iterations:
+Iterations = vector()
+error = vector()
+fused0 <- SNF(list(graph1, graph2, graph3), K, 1)
+for (i in 2:50){
+  fusedi <- SNF(list(graph1, graph2, graph3), K, i)
+  err <- norm(fusedi - fused0,'2')/norm(fused0,'2')
+  error <- append(error, err)
+  Iterations <- append(Iterations, i)
+  fused0 <- fusedi
+}
+png(file="SNFconv_error_T.png",width=600, height=350)
+plot(Iterations, error)
+dev.off()
+```
+Therefore we choose T = 15
+###K (number of nearest neighbors):
+```{r}
+error = vector()
+K = vector()
+fused0 <- SNF(list(graph1, graph2, graph3), 1, 15)
+for (i in 2:50){
+#now get graphs again as K is changing:
+  graph1 <- affinityMatrix(Dist1, i, alpha)
+  graph2 <- affinityMatrix(Dist2, i, alpha)
+  graph3 <- affinityMatrix(Dist3, i, alpha)
+  fusedi <- SNF(list(graph1, graph2, graph3), i, 15)
+  err <- norm(fusedi - fused0,'2')/norm(fused0,'2')
+  error <- append(error, err)
+  K <- append(K, i)
+  fused0 <- fusedi
+}
+png(file="SNFconv_error_K.png",width=600, height=350)
+plot(K, error)
+dev.off()
+```
+now we choose K = 20
+###alpha (hyperparameter used in calculations):
+```{r}
+error = vector()
+alpha = vector()
+fused0 <- SNF(list(graph1, graph2, graph3), 1, 15)
+for (i in 1:20){
+  #now get graphs again as K is changing:
+  graph1 <- affinityMatrix(Dist1, 20, i * 0.05)
+  graph2 <- affinityMatrix(Dist2, 20, i * 0.05)
+  graph3 <- affinityMatrix(Dist3, 20, i * 0.05)
+  fusedi <- SNF(list(graph1, graph2, graph3), 20, 15)
+  err <- norm(fusedi - fused0,'2')/norm(fused0,'2')
+  error <- append(error, err)
+  alpha <- append(alpha, i * 0.05)
+  fused0 <- fusedi
+}
+png(file="SNFconv_error_alpha.png",width=600, height=350)
+plot(alpha, error)
+dev.off()
+```
+we choose alpha = 0.5
+##apply SNF using the chosen parmeters:
+```{r}
+T <- 15
+K <- 20
+alpha <- 0.5
+
+graph1 <- affinityMatrix(Dist1, K, alpha)
+graph2 <- affinityMatrix(Dist2, K, alpha)
+graph3 <- affinityMatrix(Dist3, K, alpha)
+fused <- SNF(list(graph1, graph2, graph3), K, T)
+```
+#rSNF:
+##choosing number of clusters (c):
+###visualizing clusters:
+```{r}
+#try different numbers of clusters:
+group2 = spectralClustering(fused,2);
+group3 = spectralClustering(fused,3);
+group4 = spectralClustering(fused,4);
+group5 = spectralClustering(fused,5);
+group6 = spectralClustering(fused,6);
+group7 = spectralClustering(fused,7);
+
+png(file="displayClusters_group2.png", width=840, height=600)
+displayClusters(fused,group2)
+dev.off()
+
+png(file="displayClusters_group3.png", width=840, height=600)
+displayClusters(fused,group3)
+dev.off()
+
+png(file="displayClusters_group4.png", width=840, height=600)
+displayClusters(fused,group4)
+dev.off()
+
+png(file="displayClusters_group5.png", width=840, height=600)
+displayClusters(fused,group5)
+dev.off()
+
+png(file="displayClusters_group6.png", width=840, height=600)
+displayClusters(fused,group6)
+dev.off()
+
+png(file="displayClusters_group7.png", width=840, height=600)
+displayClusters(fused,group7)
+dev.off()
+```
+###Dunn Index:
+```{r}
+#as we have similarities rather than distances, we will use max whenever it says min and vice versa:
+
+DunnIndex <- function(fused, c){
+  group <- spectralClustering(fused,c)
+  inter <- vector(mode = "numeric", length = dim(combn(c,2))[2])
+  intra <- vector(mode = "numeric", length = c)
+  for (i in 1:dim(combn(c,2))[2]) {
+    inter[i] <- max(fused[group==combn(c,2)[,i][1],group==combn(c,2)[,i][2]])   #maximum similarity between a member from cluster i1 and a member from cluster i2
+  }
+  for (i in 1:c){
+    intra[i] <- min(fused[group==i, group==i])                                  #minimum similarity between two members of cluster i
+  }
+  return(min(intra)/max(inter)) #higher values mean better clustering
+}
+
+#apply function to clustering results:
+DI2 <- DunnIndex(fused,2)
+DI3 <- DunnIndex(fused,3)
+DI4 <- DunnIndex(fused,4)
+DI5 <- DunnIndex(fused,5)
+DI6 <- DunnIndex(fused,6)
+DI7 <- DunnIndex(fused,7)
+
+#visualize results:
+png(filename = "DunnIndex.png")
+barplot(c(two=DI2,three=DI3,four=DI4,five=DI5,six=DI6,seven=DI7),
+        xlab="number of clusters (c)", 
+        ylab="minimum intra-cluster similarity / maximum inter-cluster similarity")
+dev.off()
+```
+Conclusion: 4-cluster model was used for further analysis.
+##apply rSNF using (c=4):
+###mRNA features:
+```{r}
+mRNA4_ranks <- vector(mode = "numeric", length = dim(mRNA.sn)[2])
+
+for (i in 1:dim(mRNA.sn)[2]){
+  temp_dist <- dist2(as.matrix(mRNA.sn[,i]),as.matrix(mRNA.sn[,i]))
+  temp_graph <- affinityMatrix(temp_dist,K,alpha)
+  temp_group <- spectralClustering(temp_graph,4)
+  mRNA4_ranks[i] <- calNMI(temp_group,group4)
+}
+
+mRNA4_df <- as.data.frame(mRNA4_ranks, row.names = rownames(mRNA))
+write.csv(mRNA4_df,file="mRNA_features_ranks4clusters.csv",quote=FALSE)
+```
+###miRNA features:
+```{r}
+miRNA4_ranks <- vector(mode = "numeric", length = dim(miRNA.sn)[2])
+
+for (i in 1:dim(miRNA.sn)[2]){
+  temp_dist <- dist2(as.matrix(miRNA.sn[,i]),as.matrix(miRNA.sn[,i]))
+  temp_graph <- affinityMatrix(temp_dist,K,alpha)
+  temp_group <- spectralClustering(temp_graph,4)
+  miRNA4_ranks[i] <- calNMI(temp_group,group4)
+}
+
+miRNA4_df <- as.data.frame(miRNA4_ranks, row.names = rownames(miRNA))
+write.csv(miRNA4_df,file="miRNA_features_ranks4clusters.csv",quote=FALSE)
+```
+###methyl features:
+```{r}
+methyl4_ranks <- vector(mode = "numeric", length = dim(methyl.sn)[2])
+
+for (i in 1:dim(methyl.sn)[2]){
+  temp_dist <- dist2(as.matrix(methyl.sn[,i]),as.matrix(methyl.sn[,i]))
+  temp_graph <- affinityMatrix(temp_dist,K,alpha)
+  temp_group <- spectralClustering(temp_graph,4)
+  methyl4_ranks[i] <- calNMI(temp_group,group4)
+}
+
+methyl4_df <- as.data.frame(methyl4_ranks, row.names = rownames(methyl))
+write.csv(methyl4_df,file="methyl_features_ranks4clusters.csv",quote=FALSE)
+```
+##mapping features to gene symbols:
+###mRNA:
+Translating mRNA ENSEMBLE IDs to Gene Symbols:
+```{r}
+mRNA4_df$ENSEMBLE <- rownames(mRNA4_df)
+new_map <- mrna_map[!duplicated(mrna_map$tracking_id),]
+new_map <- new_map[new_map$tracking_id %in% mRNA4_df$ENSEMBLE,]
+mRNA4_df$SYMBOL <- new_map$gene_short_name[new_map$tracking_id == mRNA4_df$ENSEMBLE]
+```
+###methylation:
+```{r}
+methyl4_df$GeneSymbol <- subset(map$Gene_Symbol, map$Reporter.ID %in% rownames(methyl4_df))  #78.3%
+```
+##showing where highest 10% is:
+###mRNA:
+```{r}
+mRNA4_df <- mRNA4_df %>% arrange(-mRNA4_df$mRNA4_ranks)
+
+png(file="mRNA_ranks_4clusters.png",width=600, height=350)
+x=c(1:length(rownames(mRNA4_df)))
+plot(x,mRNA4_df$mRNA4_ranks,type="l",main="mRNA feature ranks with 4 clusters",xlab="genes",ylab="ranks")
+abline(v=0.1 * dim(mRNA4_df)[1],col="blue")
+dev.off()
+
+mRNA4_sig <- mRNA4_df[1:ceiling(dim(mRNA4_df)[1] * 0.1),]
+```
+
+###miRNA:
+```{r}
+miRNA4_df <- miRNA4_df %>% arrange(-miRNA4_df$miRNA4_ranks)
+
+png(file="miRNA_ranks_4clusters.png",width=600, height=350)
+x=c(1:length(rownames(miRNA4_df)))
+plot(x,miRNA4_df$miRNA4_ranks,type="l",main="miRNA feature ranks with 4 clusters",xlab="miRNA",ylab="ranks")
+abline(v=0.1 * dim(miRNA4_df)[1],col="blue")
+dev.off()
+
+miRNA4_sig <- as.data.frame(miRNA4_df[1:ceiling(dim(miRNA4_df)[1] * 0.1),])
+colnames(miRNA4_sig)[1] <- "miRNA4_ranks"
+miRNA4_sig$ID <- rownames(miRNA4_df)[1:ceiling(dim(miRNA4_df)[1] * 0.1)]
+```
+
+###methylation:
+```{r}
+methyl4_df <- methyl4_df %>% arrange(-methyl4_df$methyl4_ranks)
+
+png(file="methyl_ranks_4clusters.png",width=600, height=350)
+x=c(1:length(rownames(methyl4_df)))
+plot(x,methyl4_df$methyl4_ranks,type="l",main="methylation array feature ranks with 4 clusters",xlab="methylation",ylab="ranks")
+abline(v=0.1 * dim(methyl4_df)[1],col="blue")
+dev.off()
+
+methyl4_sig <- methyl4_df[1:ceiling(dim(methyl4_df)[1] * 0.1),]
+```
+
+##save all significant features:
+```{r}
+#significant features:
+write.csv(mRNA4_sig, file="mRNA4_sig.csv", quote = FALSE)
+write.csv(miRNA4_sig, file="miRNA4_sig.csv", quote = FALSE)
+write.csv(methyl4_sig, file="methyl4_sig.csv", quote = FALSE)
+
+#list of significant miRNAs:
+write.table(miRNA4_sig$ID, file="miRNA_list.txt",quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+#list of genes common between significant mRNA features and methylation significant features:
+write.table(mRNA4_sig$SYMBOL[mRNA4_sig$SYMBOL %in% methyl4_sig$GeneSymbol], file="common_gene_list.txt",quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+##visualize common genes:
+Helper function to display Venn diagram:
+```{r}
+display_venn <- function(x, ...){
+  library(VennDiagram)
+  grid.newpage()
+  venn_object <- venn.diagram(x, filename = NULL, ...)
+  grid.draw(venn_object)
+}
+```
+Make venn diagrams to see overlaps:
+```{r}
+Venn_data <- list(`High-rank genes from 
+                   mRNA-seq data` = mRNA4_sig$SYMBOL,
+                  `High-rank genes from 
+                   methylation data` = methyl4_sig$GeneSymbol[!(methyl4_sig$GeneSymbol == "")])
+
+Common1 <- Reduce(intersect, Venn_data)
+
+png(file="Venn_mRNA_methyl.png",width=2000, height=2000)
+display_venn(
+  Venn_data,
+  lty = 'blank',
+  fill = c("#7FB9CE","#CE7F7F"),
+  cex = 10,
+  fontface = "italic",
+  cat.cex = 5,
+  cat.fontface = "bold",
+  cat.pos = 180,
+  cat.dist = 0.05,
+  cat.default.pos = "outer"
+  )
+dev.off()
+```
