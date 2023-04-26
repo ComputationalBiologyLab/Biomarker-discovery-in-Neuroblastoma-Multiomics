@@ -43,6 +43,12 @@ Place the other files in the 'data/' directory.
 
 Open SRC directory.
 
+Open data directory.
+
+extract compressed files to the data directory.
+
+Return to the SRC directory. 
+
 Open "Feature_Selection.Rmd" with Rstudio.
 
 Run all.
