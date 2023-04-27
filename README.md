@@ -1,7 +1,8 @@
 # Biomarker-discovery-in-Neuroblastoma-Multiomics
 Code for replicating the study "A computational framework for biomarker discovery in Neuroblastoma ‎through multi-omics data"
 
-### 1-Data retrieval (This step can be skipped, and use the preprocessed files directly which are available in the SRC/data/ directory):
+### 1-Data retrieval (This step can be skipped, and use the preprocessed files directly which are available in the the following link):
+ https://drive.google.com/drive/folders/18UzhT5_4NNl4sfyfVDjdCbFAMner7NyL?usp=share_link 
 
 Open SRC directory.
 
