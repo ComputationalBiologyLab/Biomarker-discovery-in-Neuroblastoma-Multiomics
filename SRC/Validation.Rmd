@@ -168,7 +168,8 @@ clinical.validation <- read.table("GSE62564_clinical.txt", sep="\t", header = TR
 ```
 ##Select expression for our biomarkers:
 ```{r}
-writeClipboard(rownames(mrna.validation))
+#this section is commented out, as the "refseqID2genesymbol.txt" file is available at: https://drive.google.com/drive/folders/18UzhT5_4NNl4sfyfVDjdCbFAMner7NyL?usp=share_link
+#writeClipboard(rownames(mrna.validation))
 #link used to convert refseqId to gene symbol, choose human refseq to symbol converter, paste clipboard content, then copy the result, paste in notepad and save as .txt file named refseqID2genesymbol.txt:
 
 # https://www.biotools.fr/human/refseq_symbol_converter
