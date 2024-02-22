@@ -1,0 +1,313 @@
+---
+title: "A computational framework for biomarker discovery in Neuroblastoma through multi-omics data"
+subtitle: "Validation"
+Author: "Rahma Hussein Hassan Refky"
+date: "Jan, 21, 2024"
+last modified: "Feb, 20, 2024"
+---
+#Code for "A computational framework for biomarker discovery in Neuroblastoma through multi-omics data"
+
+#Survival analysis:
+##Read biomarkers:
+```{r}
+biomarkers = read.csv('Biomarkers.csv')
+```
+##Get expression profiles of biomarkers:
+```{r}
+mRNA = read.csv("NBL_mRNA_TPM.csv",row.names = 'gene_id')
+
+miRNA = read.csv("NBL_miRNA_RPM.csv",row.names = 'miRNA_ID')
+
+# remove the 'TARGET-30-PASUYG-01' sample as it has poor quality methylation data (see python folder):
+
+mRNA$`TARGET.30.PASUYG.01` <- NULL
+miRNA$`TARGET.30.PASUYG.01` <- NULL
+#Mapping ensemble ids to gene names for mRNA data:
+
+mrna_map <- read.csv(file="TARGET-30-PALBFW-01_mRNA.csv")
+
+biomarkers$ids <- "Na"
+for (id in biomarkers$Node[biomarkers$Type == "TF"]){
+  biomarkers$ids[biomarkers$Node == id] <- mrna_map$tracking_id[mrna_map$gene_short_name == id]
+
+} 
+mRNA.biomarkers = mRNA[row.names(mRNA) %in% biomarkers$id,]
+miRNA.biomarkers = miRNA[row.names(miRNA) %in% biomarkers$Node,]
+```
+##Read clinical data:
+```{r}
+#clinical data:
+clinical <- read.csv("NBL_clinical.csv")
+clinical <- clinical[clinical$TARGET.USI != "TARGET-30-PASUYG",] 
+clinical$TARGET.USI <- gsub("-",".", clinical$TARGET.USI)
+clinical$TARGET.USI <- paste0(clinical$TARGET.USI, ".01")
+
+```
+```{r}
+#loading libraries:
+
+library("survival")
+library("survminer")
+
+
+clinical$EventIndicator <- clinical$Vital.Status == "Dead"
+
+```
+
+##Functions for survival analysis:
+```{r}
+#helper function for formatting:
+custom_theme <- function() {
+  theme_survminer() %+replace%
+    theme(
+      plot.title=element_text(hjust=0.5)
+    )
+}
+```
+
+```{r}
+#function for plotting Kaplan Meier curves:
+
+SurvivalGraphs <- function(biomarker, expression, clinical, method, Colors = c("red","blue")){
+  clinical[,paste0(biomarker, "_exp")] <- t(expression[biomarker,])
+  if (method == "Mean"){
+    Mean <- mean(as.numeric(clinical[,paste0(biomarker, "_exp")]))
+    Std <- sd(clinical[,paste0(biomarker, "_exp")])
+    
+    clinical[,paste0(biomarker, "_Mean")] <- "ommit"
+    clinical[clinical[,paste0(biomarker, "_exp")] > (Mean + 0.25 * Std),paste0(biomarker, "_Mean")] <- "high"
+    clinical[clinical[,paste0(biomarker, "_exp")] < (Mean - 0.25 * Std),paste0(biomarker, "_Mean")] <- "low"
+    clinical.hl <- clinical[!(clinical[,paste0(biomarker, "_Mean")] == "ommit"),]
+  }
+    if (method == "Median"){
+    Median <- median(as.numeric(clinical[,paste0(biomarker, "_exp")]))
+    clinical[,paste0(biomarker, "_Median")] <- "high"
+    clinical[clinical[,paste0(biomarker, "_exp")] < Median,paste0(biomarker, "_Median")] <- "low"
+    clinical.hl <- clinical
+    }
+  
+  
+    High <- survfit(Surv(clinical.hl$Overall.Survival.Time.in.Days[clinical.hl[,paste0(biomarker, "_",method)]=="high"], clinical.hl$EventIndicator[clinical.hl[,paste0(biomarker, "_",method)]=="high"]) ~ 1, data = clinical.hl)
+
+    Low <- survfit(Surv(clinical.hl$Overall.Survival.Time.in.Days[clinical.hl[,paste0(biomarker, "_",method)]=="low"], clinical.hl$EventIndicator[clinical.hl[,paste0(biomarker, "_",method)]=="low"]) ~ 1, data = clinical.hl)
+    
+    sd <- survdiff(Surv(clinical.hl$Overall.Survival.Time.in.Days, clinical.hl$EventIndicator) ~ clinical.hl[,paste0(biomarker, "_",method)]) ;p = 1 - pchisq(sd$chisq, length(sd$n) - 1)  
+
+fit <- list(high = High, low = Low)
+
+png(file=paste0("OverallSurvival_",biomarker,"_",method,".png"),width=600, height=350)
+plot <- ggsurvplot(fit, data = clinical.hl, combine = TRUE, 
+     xlab = "Days", 
+     ylab = "survival probability",       title = paste0(biomarker," expression OS (p-value = ",round(p,3),")",sep = ""),      ggtheme=custom_theme(),
+     censor = FALSE,
+     palette = Colors)
+print(plot)
+dev.off()    
+
+}
+
+```
+##applying function to biomarkers:
+```{r}
+
+for (i in 1:3){
+  rownames(mRNA.biomarkers)[i] <- biomarkers[biomarkers$ids == rownames(mRNA.biomarkers)[i], "Node"]
+}
+
+for (gene in rownames(mRNA.biomarkers)){
+  SurvivalGraphs(gene, mRNA.biomarkers, clinical[,c("Overall.Survival.Time.in.Days", "EventIndicator")], "Mean")
+}
+
+for (mirna in rownames(miRNA.biomarkers)){
+  SurvivalGraphs(mirna, miRNA.biomarkers, clinical[,c("Overall.Survival.Time.in.Days", "EventIndicator")], "Mean")
+}
+
+```
+##function for getting survival p-values as table:
+```{r}
+Survivalpvalue <- function(biomarker, expression, clinical){
+  clinical[,paste0(biomarker, "_exp")] <- t(expression[biomarker,])
+
+    Mean <- mean(as.numeric(clinical[,paste0(biomarker, "_exp")]))
+    Std <- sd(clinical[,paste0(biomarker, "_exp")])
+    
+    clinical[,paste0(biomarker, "_Mean")] <- "ommit"
+    clinical[clinical[,paste0(biomarker, "_exp")] > (Mean + 0.25 * Std),paste0(biomarker, "_Mean")] <- "high"
+    clinical[clinical[,paste0(biomarker, "_exp")] < (Mean - 0.25 * Std),paste0(biomarker, "_Mean")] <- "low"
+    clinical.hl <- clinical[!(clinical[,paste0(biomarker, "_Mean")] == "ommit"),]
+    
+    sd <- survdiff(Surv(clinical.hl$Overall.Survival.Time.in.Days, clinical.hl$EventIndicator) ~ clinical.hl[,paste0(biomarker, "_Mean")]) ;p = 1 - pchisq(sd$chisq, length(sd$n) - 1)  
+
+return(p)
+
+}
+
+```
+##apply fucntion to biomarkers:
+```{r}
+Survival_p_values <- as.data.frame(rep(0,10),row.names = c(rownames(mRNA.biomarkers),rownames(miRNA.biomarkers)))
+colnames(Survival_p_values) <- "p-value"
+for (bmk in rownames(mRNA.biomarkers)){
+  p <- Survivalpvalue(bmk,mRNA.biomarkers,clinical)
+  Survival_p_values[bmk,"p-value"] <- p
+}
+for (bmk in rownames(miRNA.biomarkers)){
+  p <- Survivalpvalue(bmk,miRNA.biomarkers,clinical)
+  Survival_p_values[bmk,"p-value"] <- p
+}
+
+write.csv(Survival_p_values,"automatic_survival_pvalues.csv")
+```
+
+#Survival analysis for external validation dataset (GSE62564):
+##Read validation dataset:
+```{r}
+#read data:
+mrna.validation <- read.table("GSE62564_SEQC_NB_RNA-Seq_log2RPM.txt", sep="\t", header = TRUE, row.names = 1)
+clinical.validation <- read.table("GSE62564_clinical.txt", sep="\t", header = TRUE)
+```
+##Select expression for our biomarkers:
+```{r}
+writeClipboard(rownames(mrna.validation))
+#link used to convert refseqId to gene symbol, choose human refseq to symbol converter, paste clipboard content, then copy the result, paste in notepad and save as .txt file named refseqID2genesymbol.txt:
+
+# https://www.biotools.fr/human/refseq_symbol_converter
+```
+```{r}
+
+refseq2symbol <- read.table("refseqID2genesymbol.txt",sep="\t")
+
+#customize clinical data:
+clinical.validation <- clinical.validation[c(14,15),]
+clinical.validation <- as.data.frame(t(clinical.validation))
+colnames(clinical.validation) <- c("OS.days","Vital.status")
+clinical.validation <- clinical.validation[-1,] 
+
+clinical.validation$`Overall.Survival.Time.in.Days` <- as.numeric(gsub("os day: ","",clinical.validation$OS.days))
+clinical.validation$EventIndicator <- as.numeric(gsub("os bin: ","",clinical.validation$Vital.status))
+
+samples <- gsub("..2.","",rownames(clinical.validation)) %in% colnames(mrna.validation)
+clinical.validation <- clinical.validation[samples,]
+rownames(clinical.validation) <- gsub("..2.","",rownames(clinical.validation))
+
+#select expression data samples that have clincial data:
+mrna.validation <- mrna.validation[,samples]
+
+#check samples:
+all(colnames(mrna.validation) == rownames(clinical.validation))  #TRUE
+
+#see how many biomarkers are present:
+sum(rownames(mRNA.biomarkers) %in% refseq2symbol$V2)
+sum(gsub("hsa-mir-","MIR",rownames(miRNA.biomarkers)) %in% refseq2symbol$V2)
+#all are here
+
+#select our biomarkers
+refseq2symbol <- refseq2symbol[refseq2symbol$V2 %in% c(rownames(mRNA.biomarkers), gsub("hsa-mir-","MIR",rownames(miRNA.biomarkers))),]
+
+mrna.validation <- mrna.validation[refseq2symbol$V1,]
+```
+
+```{r}
+#choosing the refseq ID with highest average expression for genes that have multiple refseq IDs in the dataset:
+
+#SPI1:
+SPI1 <- mrna.validation[refseq2symbol$V1[refseq2symbol$V2 == "SPI1"],]
+mean(as.numeric(SPI1[1,]))
+mean(as.numeric(SPI1[2,]))
+
+#POU2F2:
+POU2F2 <- mrna.validation[refseq2symbol$V1[refseq2symbol$V2 == "POU2F2"],]
+mean(as.numeric(POU2F2[1,]))
+mean(as.numeric(POU2F2[2,]))
+mean(as.numeric(POU2F2[3,]))
+mean(as.numeric(POU2F2[4,]))
+
+refseq2symbol <- refseq2symbol[!(refseq2symbol$V1 %in% c("NM_001207026","NM_001247994","NM_002698","NM_001080547")),]
+mrna.validation <- mrna.validation[refseq2symbol$V1,]
+rownames(mrna.validation) <- refseq2symbol$V2
+
+```
+##use survival graph function:
+```{r}
+for (bmk in refseq2symbol$V1){
+  SurvivalGraphs(bmk, mrna.validation, clinical.validation[,c("Overall.Survival.Time.in.Days", "EventIndicator")], "Mean")
+}
+```
+
+##get survival p-values as table:
+```{r}
+Survival_validation_p_values <- as.data.frame(rep(0,10),row.names = rownames(mrna.validation))
+colnames(Survival_validation_p_values) <- "p-value"
+for (bmk in rownames(mrna.validation)){
+  p <- Survivalpvalue(bmk,mrna.validation,clinical.validation[,c("Overall.Survival.Time.in.Days","EventIndicator")])
+  Survival_validation_p_values[bmk,"p-value"] <- p
+}
+
+
+write.csv(Survival_validation_p_values,"automatic_survival_validation_pvalues.csv")
+Survival_validation_p_values
+```
+#Chi square correlation:
+```{r}
+#INSS stage:
+
+biomarkers$INSS_Chi <- 0
+biomarkers$INSS_Chi_p.value <- 0
+
+for (bmk in biomarkers$Node){
+  a <- chisq.test(clinical[,paste0(bmk, "_exp")] > median(as.numeric(clinical[,paste0(bmk, "_exp")])), clinical$INSS.Stage)
+  biomarkers$INSS_Chi[biomarkers$Node == bmk] <- a$statistic 
+  biomarkers$INSS_Chi_p.value[biomarkers$Node == bmk] <- a$p.value
+}
+
+write.csv(biomarkers[,c("Node","INSS_Chi","INSS_Chi_p.value")], file = "Chi_square_test_results.csv")
+
+biomarkers[,c("Node","INSS_Chi","INSS_Chi_p.value")]
+```
+
+#Daignostic (ROC) using external validation dataset (mirna-GSE128004):
+```{r}
+#read data:
+mirna_diagnostic <- read.table("GSE128004_RPKM-NB-exomalmiRNA.txt", sep="\t", header = TRUE, row.names = 1)
+rownames(mirna_diagnostic) <- gsub("miR","mir",rownames(mirna_diagnostic))
+
+#see how many of our biomarkers are available:
+sum(rownames(miRNA.biomarkers) %in% rownames(mirna_diagnostic))       #6 out of 7
+
+#get expression of our biomarkers:
+mirna_diagnostic_biomarkers <- as.data.frame(t(mirna_diagnostic[rownames(mirna_diagnostic) %in% rownames(miRNA.biomarkers),]))
+
+#add diagnosis column:
+mirna_diagnostic_biomarkers$Diagnosis <- as.numeric(grepl("N", rownames(mirna_diagnostic_biomarkers)))
+
+```
+##ROC code:
+```{r}
+library(pROC)
+```
+```{r}
+
+ROC_curve <- function(data, bmk, Color = "light blue"){
+  roc1 <- pROC::roc(data[,"Diagnosis"],data[,bmk])
+  png(file=paste0("ROC_",bmk,".png"),width=500, height=500)
+curve <- pROC::plot.roc(roc1, 
+              xlab="false positive rate" , 
+              ylab = "true positive rate",       
+              col = Color,
+              identity=FALSE,
+              legacy.axes=TRUE,
+              print.auc = TRUE,
+              print.auc.col = "black",
+              grid = TRUE,
+              main = paste0("ROC curve for ",bmk))
+print(curve)
+dev.off()
+}
+
+#applying function to all 6 biomarkers:
+
+for (bmk in colnames(mirna_diagnostic_biomarkers)[colnames(mirna_diagnostic_biomarkers) != "Diagnosis"])
+{
+  ROC_curve(mirna_diagnostic_biomarkers, bmk)
+  }
+```
