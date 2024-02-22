@@ -125,3 +125,96 @@ The following results will be saved in your working directory:
 
 
 These files are used for network analysis using cytoscape.
+
+### 4-Validation:
+
+Open "Validation.Rmd" with Rstudio.
+
+Make sure you have the following files in your working directory (they are available at: https://drive.google.com/drive/folders/18UzhT5_4NNl4sfyfVDjdCbFAMner7NyL?usp=share_link):
+
+"Biomarkers.csv"
+
+"NBL_mRNA_TPM.csv"
+
+"NBL_miRNA_RPM.csv"
+
+"TARGET-30-PALBFW-01_mRNA.csv"
+
+"NBL_clinical.csv"
+
+"GSE62564_SEQC_NB_RNA-Seq_log2RPM.txt"
+
+"GSE62564_clinical.txt"
+
+"refseqID2genesymbol.txt"
+
+"GSE128004_RPKM-NB-exomalmiRNA.txt"
+
+
+Run the Survival analysis section.
+
+The following results will be saved in your working directory:
+
+"OverallSurvival_hsa-mir-137_Mean.png"
+
+"OverallSurvival_hsa-mir-421_Mean.png"
+
+"OverallSurvival_hsa-mir-760_Mean.png"
+
+"OverallSurvival_hsa-mir-940_Mean.png"
+
+"OverallSurvival_hsa-mir-1305_Mean.png"
+
+"OverallSurvival_hsa-mir-1976_Mean.png"
+
+"OverallSurvival_hsa-mir-2110_Mean.png"
+
+"OverallSurvival_MYCN_Mean.png"
+
+"OverallSurvival_POU2F2_Mean.png"
+
+"OverallSurvival_SPI1_Mean.png"
+
+"automatic_survival_pvalues.csv"
+
+Remove these files from working directory to avoid overwriting.
+
+Run the remaining sections.
+
+The following results will be saved in your working directory:
+
+"OverallSurvival_MIR137_Mean.png"
+
+"OverallSurvival_MIR421_Mean.png"
+
+"OverallSurvival_MIR760_Mean.png"
+
+"OverallSurvival_MIR940_Mean.png"
+
+"OverallSurvival_MIR1305_Mean.png"
+
+"OverallSurvival_MIR1976_Mean.png"
+
+"OverallSurvival_MIR2110_Mean.png"
+
+"OverallSurvival_MYCN_Mean.png"
+
+"OverallSurvival_POU2F2_Mean.png"
+
+"OverallSurvival_SPI1_Mean.png"
+
+"automatic_survival_validation_pvalues.csv"
+
+"Chi_square_test_results.csv"
+
+"ROC_hsa-mir-137.png"
+
+"ROC_hsa-mir-421.png"
+
+"ROC_hsa-mir-760.png"
+
+"ROC_hsa-mir-940.png"
+
+"ROC_hsa-mir-1976.png"
+
+"ROC_hsa-mir-2110.png"
